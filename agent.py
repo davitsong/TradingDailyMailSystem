@@ -6,6 +6,7 @@ import pytz
 import yfinance as yf
 # 최신 구글 제미나이 라이브러리 불러오기
 from google import genai
+from email.header import Header
 
 # 1. 환경 변수로부터 비밀 정보 로드
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
@@ -86,8 +87,9 @@ def send_email(subject, body):
     try:
         targets = [email.strip() for email in RECEIVER_EMAIL.split(',') if email.strip()]
         
+        # [⚠️ 핵심 수정] 이메일 제목과 본문 모두 UTF-8 한글 설정 적용
         msg = MIMEText(body, 'plain', 'utf-8')
-        msg['Subject'] = subject
+        msg['Subject'] = Header(subject, 'utf-8') # 제목이 한글이어도 깨지지 않게 보정
         msg['From'] = GMAIL_USER
         msg['To'] = ", ".join(targets)
 
