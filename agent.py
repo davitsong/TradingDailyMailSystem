@@ -70,22 +70,26 @@ def generate_report():
         격식 있고 전문적인 언어로 작성하고, 가독성이 좋게 줄바꿈과 기호(■, -, 💡)를 적절히 섞어줘.
         """
 
-    # 🔴 [재시도 로직 탑재 완료] 구글 503 에러 방어용 무기
-    max_retries = 3
+    # 🔴 [초강력 방어막] 대기 시간을 대폭 늘린 5회 연속 재시도 로직
+    max_retries = 5
+    # 실패할 때마다 쉴 시간 (5초, 15초, 30초, 60초)
+    delays = [5, 15, 30, 60, 0] 
+    
     for attempt in range(max_retries):
         try:
             response = client.models.generate_content(
                 model='gemini-2.5-flash',
                 contents=prompt,
             )
-            return subject, response.text  # 성공 시 정상 리턴
+            return subject, response.text
         except Exception as e:
-            print(f"[{attempt + 1}/{max_retries}] 구글 서버 응답 지연 발생... 3초 후 다시 시도합니다. 에러내용: {e}")
+            wait_time = delays[attempt]
+            print(f"[{attempt + 1}/{max_retries}] 구글 서버 과부하 발생... {wait_time}초 후 다시 시도합니다.")
             if attempt < max_retries - 1:
-                time.sleep(3)  # 3초 쉬고 다시 위로 올라가서 찌름
+                time.sleep(wait_time)
             else:
-                raise e  # 3번 다 실패하면 최종 에러 발생
-
+                raise e
+                
 def send_email(subject, body):
     global GMAIL_USER, GMAIL_APP_PASSWORD, RECEIVER_EMAIL
     if not GMAIL_USER or not GMAIL_APP_PASSWORD or not RECEIVER_EMAIL:
