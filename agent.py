@@ -1,5 +1,6 @@
 import os
 import smtplib
+import time  # 🔴 재시도 대기 시간을 쓰기 위해 반드시 필요합니다!
 from email.message import EmailMessage
 from datetime import datetime
 import pytz
@@ -69,11 +70,21 @@ def generate_report():
         격식 있고 전문적인 언어로 작성하고, 가독성이 좋게 줄바꿈과 기호(■, -, 💡)를 적절히 섞어줘.
         """
 
-    response = client.models.generate_content(
-        model='gemini-2.5-flash',
-        contents=prompt,
-    )
-    return subject, response.text
+    # 🔴 [재시도 로직 탑재 완료] 구글 503 에러 방어용 무기
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            response = client.models.generate_content(
+                model='gemini-2.5-flash',
+                contents=prompt,
+            )
+            return subject, response.text  # 성공 시 정상 리턴
+        except Exception as e:
+            print(f"[{attempt + 1}/{max_retries}] 구글 서버 응답 지연 발생... 3초 후 다시 시도합니다. 에러내용: {e}")
+            if attempt < max_retries - 1:
+                time.sleep(3)  # 3초 쉬고 다시 위로 올라가서 찌름
+            else:
+                raise e  # 3번 다 실패하면 최종 에러 발생
 
 def send_email(subject, body):
     global GMAIL_USER, GMAIL_APP_PASSWORD, RECEIVER_EMAIL
@@ -82,7 +93,6 @@ def send_email(subject, body):
         return
 
     try:
-        # [⚠️ 문제 해결 핵심 1] 모든 데이터에서 유령 공백(\xa0)을 완전히 제거/치환
         GMAIL_USER = GMAIL_USER.replace('\xa0', ' ').strip()
         GMAIL_APP_PASSWORD = GMAIL_APP_PASSWORD.replace('\xa0', ' ').strip()
         RECEIVER_EMAIL = RECEIVER_EMAIL.replace('\xa0', ' ').strip()
@@ -91,7 +101,6 @@ def send_email(subject, body):
 
         targets = [email.strip() for email in RECEIVER_EMAIL.split(',') if email.strip()]
         
-        # [⚠️ 문제 해결 핵심 2] 인코딩 방식을 아예 명시적으로 'utf-8' 처리
         msg = EmailMessage()
         msg.set_content(body, charset='utf-8') 
         msg['Subject'] = subject
