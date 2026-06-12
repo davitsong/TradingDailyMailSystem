@@ -1,6 +1,5 @@
 import os
 import smtplib
-# [⚠️ 핵심 수정] 한글 및 특수문자 에러를 원천 차단하는 최신 메일 모듈로 변경
 from email.message import EmailMessage
 from datetime import datetime
 import pytz
@@ -77,24 +76,31 @@ def generate_report():
     return subject, response.text
 
 def send_email(subject, body):
+    global GMAIL_USER, GMAIL_APP_PASSWORD, RECEIVER_EMAIL
     if not GMAIL_USER or not GMAIL_APP_PASSWORD or not RECEIVER_EMAIL:
         print("이메일 설정 정보(Secrets)가 누락되어 발송을 건너뜁니다.")
         return
 
     try:
-        # 이메일 주소들 공백 제거 및 리스트화
+        # [⚠️ 문제 해결 핵심 1] 모든 데이터에서 유령 공백(\xa0)을 완전히 제거/치환
+        GMAIL_USER = GMAIL_USER.replace('\xa0', ' ').strip()
+        GMAIL_APP_PASSWORD = GMAIL_APP_PASSWORD.replace('\xa0', ' ').strip()
+        RECEIVER_EMAIL = RECEIVER_EMAIL.replace('\xa0', ' ').strip()
+        subject = subject.replace('\xa0', ' ')
+        body = body.replace('\xa0', ' ')
+
         targets = [email.strip() for email in RECEIVER_EMAIL.split(',') if email.strip()]
         
-        # [⚠️ 핵심 수정] EmailMessage 개체 사용 (자동 UTF-8 변환)
+        # [⚠️ 문제 해결 핵심 2] 인코딩 방식을 아예 명시적으로 'utf-8' 처리
         msg = EmailMessage()
-        msg.set_content(body) # 본문 넣기 (한글 완전 안전)
-        msg['Subject'] = subject # 제목 넣기 (한글 완전 안전)
+        msg.set_content(body, charset='utf-8') 
+        msg['Subject'] = subject
         msg['From'] = GMAIL_USER
         msg['To'] = ", ".join(targets)
 
         with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
             server.login(GMAIL_USER, GMAIL_APP_PASSWORD)
-            server.send_message(msg) # 완성된 메시지 객체로 발송
+            server.send_message(msg)
             
         print(f"이메일 발송 성공! (수신처: {targets})")
     except Exception as e:
