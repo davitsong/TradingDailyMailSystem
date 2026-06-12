@@ -4,29 +4,30 @@ from email.mime.text import MIMEText
 from datetime import datetime
 import pytz
 import yfinance as yf
-import google.generativeai as genai
+# 최신 구글 제미나이 라이브러리 불러오기
+from google import genai
 
-# 1. 환경 변수로부터 비밀 정보 로드 (GitHub Secrets와 연동됨)
+# 1. 환경 변수로부터 비밀 정보 로드
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 GMAIL_USER = os.environ.get("GMAIL_USER")
 GMAIL_APP_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD")
 RECEIVER_EMAIL = os.environ.get("RECEIVER_EMAIL")
 
-# AI 설정
-genai.configure(api_key=GEMINI_API_KEY)
+if not GEMINI_API_KEY:
+    raise ValueError("GitHub Secrets에 GEMINI_API_KEY가 등록되지 않았거나 불러올 수 없습니다.")
+
+# 최신 방식으로 클라이언트 초기화
+client = genai.Client(api_key=GEMINI_API_KEY)
 
 def get_stock_data(market_type):
-    """간단한 지수 데이터를 긁어와 AI 프롬프트에 힌트로 제공"""
     try:
         if market_type == "morning":
-            # 미국 나스닥, S&P500
             nasdaq = yf.Ticker("^IXIC").history(period="1d")
             sp500 = yf.Ticker("^GSPC").history(period="1d")
             n_chg = ((nasdaq['Close'].iloc[-1] - nasdaq['Open'].iloc[-1]) / nasdaq['Open'].iloc[-1]) * 100
             s_chg = ((sp500['Close'].iloc[-1] - sp500['Open'].iloc[-1]) / sp500['Open'].iloc[-1]) * 100
             return f"[미국 증시 기본 데이터] 나스닥 등락률: {n_chg:.2f}%, S&P 500 등락률: {s_chg:.2f}%"
         else:
-            # 한국 코스피, 코스닥
             kospi = yf.Ticker("^KS11").history(period="1d")
             kosdaq = yf.Ticker("^KQ11").history(period="1d")
             k_chg = ((kospi['Close'].iloc[-1] - kospi['Open'].iloc[-1]) / kospi['Open'].iloc[-1]) * 100
@@ -36,14 +37,11 @@ def get_stock_data(market_type):
         return f"기본 지수 데이터 수집 실패(AI가 자체 지식으로 분석 필요): {str(e)}"
 
 def generate_report():
-    # 한국 시간 기준 현재 시각 확인
     tz_seoul = pytz.timezone('Asia/Seoul')
     now = datetime.now(tz_seoul)
     hour = now.hour
 
-    model = genai.GenerativeModel('gemini-1.5-flash') # 속도가 빠르고 텍스트 분석에 뛰어난 모델
-
-    if hour < 12:  # 아침 6시 타임
+    if hour < 12:
         print("아침 미국 증시 리포트 생성 중...")
         market_info = get_stock_data("morning")
         subject = f"[AI 주식 에이전트] {now.strftime('%Y-%m-%d')} 아침 미국 증시 및 글로벌 이슈 보고서"
@@ -57,7 +55,7 @@ def generate_report():
         
         격식 있고 전문적인 언어로 작성하고, 가독성이 좋게 줄바꿈과 기호(■, -, 💡)를 적절히 섞어줘.
         """
-    else:  # 오후 장 마감 타임
+    else:
         print("오후 장 마감 리포트 생성 중...")
         market_info = get_stock_data("evening")
         subject = f"[AI 주식 에이전트] {now.strftime('%Y-%m-%d')} 장 마감 한국 증시 종합 보고서"
@@ -73,21 +71,30 @@ def generate_report():
         격식 있고 전문적인 언어로 작성하고, 가독성이 좋게 줄바꿈과 기호(■, -, 💡)를 적절히 섞어줘.
         """
 
-    response = model.generate_content(prompt)
+    # 최신 규격 모델 및 호출 방식 적용
+    response = client.models.generate_content(
+        model='gemini-1.5-flash',
+        contents=prompt,
+    )
     return subject, response.text
 
 def send_email(subject, body):
+    if not GMAIL_USER or not GMAIL_APP_PASSWORD or not RECEIVER_EMAIL:
+        print("이메일 설정 정보(Secrets)가 누락되어 발송을 건너뜁니다.")
+        return
+
     try:
+        targets = [email.strip() for email in RECEIVER_EMAIL.split(',') if email.strip()]
+        
         msg = MIMEText(body, 'plain', 'utf-8')
         msg['Subject'] = subject
         msg['From'] = GMAIL_USER
-        msg['To'] = RECEIVER_EMAIL
+        msg['To'] = ", ".join(targets)
 
-        # Gmail SMTP 서버 연결
         with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
             server.login(GMAIL_USER, GMAIL_APP_PASSWORD)
-            server.sendmail(GMAIL_USER, [RECEIVER_EMAIL], msg.as_string())
-        print("이메일 발송 성공!")
+            server.sendmail(GMAIL_USER, targets, msg.as_string())
+        print(f"이메일 발송 성공! (수신처: {targets})")
     except Exception as e:
         print(f"이메일 발송 실패: {e}")
 
