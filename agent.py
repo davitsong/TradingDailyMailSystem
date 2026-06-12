@@ -1,12 +1,11 @@
 import os
 import smtplib
-from email.mime.text import MIMEText
+# [⚠️ 핵심 수정] 한글 및 특수문자 에러를 원천 차단하는 최신 메일 모듈로 변경
+from email.message import EmailMessage
 from datetime import datetime
 import pytz
 import yfinance as yf
-# 최신 구글 제미나이 라이브러리 불러오기
 from google import genai
-from email.header import Header
 
 # 1. 환경 변수로부터 비밀 정보 로드
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
@@ -17,7 +16,6 @@ RECEIVER_EMAIL = os.environ.get("RECEIVER_EMAIL")
 if not GEMINI_API_KEY:
     raise ValueError("GitHub Secrets에 GEMINI_API_KEY가 등록되지 않았거나 불러올 수 없습니다.")
 
-# 최신 방식으로 클라이언트 초기화
 client = genai.Client(api_key=GEMINI_API_KEY)
 
 def get_stock_data(market_type):
@@ -72,7 +70,6 @@ def generate_report():
         격식 있고 전문적인 언어로 작성하고, 가독성이 좋게 줄바꿈과 기호(■, -, 💡)를 적절히 섞어줘.
         """
 
-    # 최신 규격 모델 및 호출 방식 적용
     response = client.models.generate_content(
         model='gemini-2.5-flash',
         contents=prompt,
@@ -85,17 +82,20 @@ def send_email(subject, body):
         return
 
     try:
+        # 이메일 주소들 공백 제거 및 리스트화
         targets = [email.strip() for email in RECEIVER_EMAIL.split(',') if email.strip()]
         
-        # [⚠️ 핵심 수정] 이메일 제목과 본문 모두 UTF-8 한글 설정 적용
-        msg = MIMEText(body, 'plain', 'utf-8')
-        msg['Subject'] = Header(subject, 'utf-8') # 제목이 한글이어도 깨지지 않게 보정
+        # [⚠️ 핵심 수정] EmailMessage 개체 사용 (자동 UTF-8 변환)
+        msg = EmailMessage()
+        msg.set_content(body) # 본문 넣기 (한글 완전 안전)
+        msg['Subject'] = subject # 제목 넣기 (한글 완전 안전)
         msg['From'] = GMAIL_USER
         msg['To'] = ", ".join(targets)
 
         with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
             server.login(GMAIL_USER, GMAIL_APP_PASSWORD)
-            server.sendmail(GMAIL_USER, targets, msg.as_string())
+            server.send_message(msg) # 완성된 메시지 객체로 발송
+            
         print(f"이메일 발송 성공! (수신처: {targets})")
     except Exception as e:
         print(f"이메일 발송 실패: {e}")
