@@ -1,0 +1,2 @@
+# TradingDailyMailSystem
+githubactions + python 
