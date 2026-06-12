@@ -73,7 +73,7 @@ def generate_report():
 
     # 최신 규격 모델 및 호출 방식 적용
     response = client.models.generate_content(
-        model='gemini-1.5-flash',
+        model='gemini-2.5-flash',
         contents=prompt,
     )
     return subject, response.text
