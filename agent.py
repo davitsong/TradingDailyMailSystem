@@ -29,8 +29,8 @@ def get_realtime_stock_info(ticker_symbol):
             prev_close = hist['Open'].iloc[-1]      
             current_price = hist['Close'].iloc[-1]  
         else:
-            prev_close = hist['Close'].iloc[-2]     # 어제 종가
-            current_price = hist['Close'].iloc[-1]  # 현재 실시간 가격
+            prev_close = hist['Close'].iloc[-2]     
+            current_price = hist['Close'].iloc[-1]  
             
         chg_amount = current_price - prev_close     
         chg_percent = (chg_amount / prev_close) * 100 
@@ -40,55 +40,88 @@ def get_realtime_stock_info(ticker_symbol):
         return None
 
 def get_pure_top_movers(market_type):
-    """[완전 동적 체제] 후보군 목록 없이 시장 전체를 스캐닝하여 당일 최고 급등주 탑 3 추출"""
+    """각 시장별로 20개의 핵심 주도주 백업 풀을 구축하여 안정성을 극대화한 스크리닝 엔진"""
     try:
         if market_type == "morning":
-            # 미국 시장: 전체 시장 day_gainers 통째로 긁어오기
-            screener = yf.Screener()
-            scr_data = screener.get_screeners('day_gainers', count=3)
-            
-            text = ""
-            for quote in scr_data['day_gainers']['quotes']:
-                t = quote['symbol']
-                price = quote['regularMarketPrice']
-                chg_amount = quote['regularMarketChange']
-                chg_percent = quote['regularMarketChangePercent']
-                text += f"- {t} [{price:,.2f}달러, 🔴 {chg_amount:+.2f}달러 ({chg_percent:+.2f}%)]\n"
-            return text
-        else:
-            # 🇰🇷 한국 시장: 고정된 pool 없이 코스피(.KS) 전체 검색 결과에서 실시간 탑 무버 동적 정렬
-            print("🔍 후보군 리스트 없이 코스피 전체 시장 실시간 급등주 스캐닝 중...")
-            
-            # 야후 파이낸스 전체 엔진에서 코스피 상장 종목군을 대량으로 동적 쿼리 (후보군 없음)
-            search_results = yf.Search(".KS", max_results=40).quotes
-            
+            # 🇺🇸 미국 시장: 실시간 거래대금 최상위 및 AI/빅테크 핵심 20대 주도주 백업 풀
+            us_backup = [
+                "TSLA", "NVDA", "AAPL", "AMD", "AMZN", "MSFT", "META", "GOOGL", 
+                "AVGO", "NFLX", "PLTR", "SMCI", "MU", "INTC", "QCOM", "ARM", 
+                "COIN", "MARA", "COSM", "NKE"
+            ]
             results = []
-            for q in search_results:
-                t = q['symbol']
-                # 코스닥 지수나 엉뚱한 심볼 제외하고 순수 코스피 주식만 동적 필터링
-                if t.endswith(".KS") and not t.startswith("^"):
-                    info = get_realtime_stock_info(t)
-                    if info and info['percent'] > 0:
-                        results.append({
-                            "name": q.get('shortname', t),
-                            "ticker": t,
-                            **info
-                        })
             
-            # 🔥 오늘 어제 종가 대비 실제 등락률(percent) 기준으로 시장 전체 순위 실시간 대정렬!
+            try:
+                screener = yf.Screener()
+                scr_data = screener.get_screeners('day_gainers', count=5)
+                for quote in scr_data['day_gainers']['quotes']:
+                    t = quote['symbol']
+                    info = get_realtime_stock_info(t)
+                    if info:
+                        results.append({"name": t, "ticker": t, **info})
+            except Exception as e:
+                print(f"⚠️ 미국 스크리너 연동 지연, 20대 백업 엔진 가동: {e}")
+                
+            # 결과가 부족하면 20대 주도주에서 누락 데이터 실시간 동적 보충
+            if len(results) < 3:
+                for t in us_backup:
+                    if not any(r['ticker'] == t for r in results):
+                        info = get_realtime_stock_info(t)
+                        if info: results.append({"name": t, "ticker": t, **info})
+                        
+            results.sort(key=lambda x: x["percent"], reverse=True)
+            text = ""
+            for m in results[:3]:
+                text += f"- {m['name']} [{m['price']:,.2f}달러, 🔴 {m['amount']:+.2f}달러 ({m['percent']:.2f}%)]\n"
+            return text
+            
+        else:
+            # 🇰🇷 대한민국 코스피 시장: 반도체, 자동차, 배터리, 바이오, 방산, 조선 등 핵심 섹터별 20대 주도주 백업 풀
+            print("🔍 코스피 전체 시장 동적 탐색 시도 중...")
+            results = []
+            
+            try:
+                search_results = yf.Search(".KS", max_results=30).quotes
+                for q in search_results:
+                    t = q['symbol']
+                    if t.endswith(".KS") and not t.startswith("^"):
+                        info = get_realtime_stock_info(t)
+                        if info and info['percent'] > 0:
+                            results.append({"name": q.get('shortname', t), "ticker": t, **info})
+            except Exception as e:
+                print(f"⚠️ 코스피 전체 동적 검색 지연, 20대 백업 엔진 가동: {e}")
+
+            # 검색 결과가 3개 미만일 때 작동하는 20대 대표 종목 안전망
+            if len(results) < 3:
+                print("🚨 코스피 초유동성 20대 대장주 엔진으로 전환하여 실시간 최고 급등주를 선별합니다.")
+                core_kospi = {
+                    "005930.KS": "삼성전자", "000660.KS": "SK하이닉스", "005380.KS": "현대차", 
+                    "000270.KS": "기아", "005490.KS": "POSCO홀딩스", "035420.KS": "NAVER", 
+                    "051910.KS": "LG화학", "068270.KS": "셀트리온", "373220.KS": "LG에너지솔루션",
+                    "042700.KS": "한미반도체", "000100.KS": "유한양행", "011200.KS": "HMM",
+                    "010140.KS": "삼성중공업", "028260.KS": "삼성물산", "034220.KS": "LG디스플레이",
+                    "000810.KS": "삼성화재", "012330.KS": "현대모비스", "015760.KS": "한국전력",
+                    "017670.KS": "SK텔레콤", "323410.KS": "카카오뱅크"
+                }
+                for ticker, name in core_kospi.items():
+                    if not any(r['ticker'] == ticker for r in results):
+                        info = get_realtime_stock_info(ticker)
+                        if info and info['percent'] > 0:
+                            results.append({"name": name, "ticker": ticker, **info})
+
+            # 등락률 기준으로 칼같이 정렬
             results.sort(key=lambda x: x["percent"], reverse=True)
             
-            if not results:
-                return "- 오늘 상승한 코스피 종목 데이터가 없습니다.\n"
+            if not map:
+                return "- 오늘 상승 마감한 코스피 주요 종목 데이터가 없습니다.\n"
                 
             text = ""
-            # 고정 목록 없이 오늘 진짜 코스피에서 가장 많이 오른 상위 3개 자동 확정
             for m in results[:3]:
                 text += f"- {m['name']} ({m['ticker'].replace('.KS','')}) [{m['price']:,.0f}원, 🔴 {int(m['amount']):+,}원 ({m['percent']:.2f}%)]\n"
             return text
             
     except Exception as e:
-        print(f"⚠️ 실시간 급등주 스크리닝 실패: {e}")
+        print(f"⚠️ 실시간 급등주 스크리닝 치명적 실패: {e}")
         return "- 실시간 급등주 데이터를 불러오는 중 오류가 발생했습니다.\n"
 
 def ask_gemini_with_retry(prompt, max_retries=3):
@@ -131,7 +164,7 @@ def inject_yfinance_to_recommendations(gemini_recommendations, market_type):
         full_ticker = ticker if market_type == "morning" else f"{ticker}.KS"
         info = get_realtime_stock_info(full_ticker)
         if not info and market_type != "morning": 
-            info = get_realtime_stock_info(f"{ticker}.KQ") # 방어용 코스닥 체크
+            info = get_realtime_stock_info(f"{ticker}.KQ")
             
         if info:
             emoji = "🔴" if info['percent'] >= 0 else "🔵"
@@ -162,14 +195,22 @@ def generate_report():
         sp500 = yf.Ticker("^GSPC").history(period="1d")
         n_price, s_price = nasdaq['Close'].iloc[-1], sp500['Close'].iloc[-1]
         n_diff, s_diff = n_price - nasdaq['Open'].iloc[-1], s_price - sp500['Open'].iloc[-1]
-        base_info = f"나스닥: {n_price:,.2f} ({n_diff:+.2f}, {(n_diff/nasdaq['Open'].iloc[-1])*100:+.2f}%), S&P 500: {s_price:,.2f} ({s_diff:+.2f}, {(s_diff/sp500['Open'].iloc[-1])*100:+.2f}%)"
+        
+        n_emoji = "🔴" if n_diff >= 0 else "🔵"
+        s_emoji = "🔴" if s_diff >= 0 else "🔵"
+        
+        base_info = f"나스닥: {n_price:,.2f} ({n_emoji} {n_diff:+.2f}, {(n_diff/nasdaq['Open'].iloc[-1])*100:+.2f}%), S&P 500: {s_price:,.2f} ({s_emoji} {s_diff:+.2f}, {(s_diff/sp500['Open'].iloc[-1])*100:+.2f}%)"
         subject = f"[AI 주식 에이전트] {now.strftime('%Y-%m-%d')} 아침 미국 증시 리포트"
     else:
         kospi = yf.Ticker("^KS11").history(period="1d")
         kosdaq = yf.Ticker("^KQ11").history(period="1d")
         k_price, kq_price = kospi['Close'].iloc[-1], kosdaq['Close'].iloc[-1]
         k_diff, kq_diff = k_price - kospi['Open'].iloc[-1], kq_price - kosdaq['Open'].iloc[-1]
-        base_info = f"코스피: {k_price:,.2f} ({k_diff:+.2f}, {(k_diff/kospi['Open'].iloc[-1])*100:+.2f}%), 코스닥: {kq_price:,.2f} ({kq_diff:+.2f}, {(kq_diff/kosdaq['Open'].iloc[-1])*100:+.2f}%)"
+        
+        k_emoji = "🔴" if k_diff >= 0 else "🔵"
+        kq_emoji = "🔴" if kq_diff >= 0 else "🔵"
+        
+        base_info = f"코스피: {k_price:,.2f} ({k_emoji} {k_diff:+.2f}, {(k_diff/kospi['Open'].iloc[-1])*100:+.2f}%), 코스닥: {kq_price:,.2f} ({kq_emoji} {kq_diff:+.2f}, {(kq_diff/kosdaq['Open'].iloc[-1])*100:+.2f}%)"
         subject = f"[AI 주식 에이전트] {now.strftime('%Y-%m-%d')} 장 마감 코스피 종합 보고서"
 
     print("🚀 [1단계] 코스피 시장 전체 실시간 당일 최고 급등주 동적 검색 중...")
@@ -195,9 +236,9 @@ def generate_report():
     {final_recommendations_section}
     
     [최종 지침]
-    - 제공된 원본 수치를 변조하지 말고 그대로 리포트에 녹여줘.
+    - 제공된 원본 수치와 지수의 빨강(🔴)/파랑(🔵) 양식을 절대 변조하지 말고 그대로 리포트에 녹여줘.
     - 1번 항목에는 너의 실시간 웹 검색을 결합하여 '오늘 하루 글로벌 주요 시황 이슈 3가지'를 추가해줘.
-    - 2번 항목에는 코스피 시장 중심의 전체적인 흐름 요약을 적어줘.
+    - 2번 항목에는 코스피 시장 중심의 전체적인 흐름 요약을 적어줘. 지수 데이터 수치는 제공된 것을 그대로 적어줘.
     - 3번 항목에는 제공된 [오늘의 코스피 시장 실제 실시간 급등주 목록]을 원본 양식 그대로 가독성 좋게 배치하고 상세 분석을 적어줘.
     - 4번 항목에는 제공된 [AI 분석 추천 주식 및 수치 결합본]을 활용해 코스피 추천 종목명, 정확한 수치, 그리고 추천 근거(이유)를 전문성 있게 배치해줘.
     """
@@ -226,7 +267,7 @@ def send_email(subject, body):
         with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
             server.login(GMAIL_USER, GMAIL_APP_PASSWORD)
             server.send_message(msg)
-        print("🎉 100% 동적 급등주 시스템 이메일 발송 최종 성공!")
+        print("🎉 20대 대장주 안전 백업 시스템 적용 메일 발송 최종 성공!")
     except Exception as e:
         print(f"❌ 이메일 발송 실패: {e}")
 
