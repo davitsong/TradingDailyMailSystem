@@ -65,15 +65,14 @@ def get_pure_top_movers(market_type):
             results.sort(key=lambda x: x["percent"], reverse=True)
             text = ""
             for m in results[:3]:
-                # 🔴 오타 교정 완료: :,.0f 표기법 적용
-                text += f"- {m['name']} [{m['price']:,.0f}원, 🔴 {m['amount']:+,..0f}원 ({m['percent']:.2f}%)]\n"
+                # ⭕ 완벽 교정: 마침표 하나(,+0f)로 변경하여 콤마 표기 보장
+                text += f"- {m['name']} [{m['price']:,.0f}원, 🔴 {int(m['amount']):+,}원 ({m['percent']:.2f}%)]\n"
             return text
     except Exception as e:
         print(f"⚠️ 실시간 급등주 스크리닝 실패: {e}")
         return "- 실시간 급등주 데이터를 불러오는 중 오류가 발생했습니다.\n"
 
 def ask_gemini_with_retry(prompt, max_retries=3):
-    """구글 503 서버 혼잡 에러가 나면 안전하게 재시도하는 함수"""
     for attempt in range(max_retries):
         try:
             response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
@@ -120,7 +119,8 @@ def inject_yfinance_to_recommendations(gemini_recommendations, market_type):
             if market_type == "morning":
                 stock_fact_map[ticker] = f"[{info['price']:,.2f}달러, {emoji} {info['amount']:+.2f}달러 ({info['percent']:.2f}%)]"
             else:
-                stock_fact_map[ticker] = f"[{info['price']:,.0f}원, {emoji} {info['amount']:+,..0f}원 ({info['percent']:.2f}%)]"
+                # ⭕ 완벽 교정: 안전하게 정수형 처리 후 콤마(,) 포맷 주입
+                stock_fact_map[ticker] = f"[{info['price']:,.0f}원, {emoji} {int(info['amount']):+,}원 ({info['percent']:.2f}%)]"
 
     lines = gemini_recommendations.split('\n')
     for i, line in enumerate(lines):
@@ -151,69 +151,4 @@ def generate_report():
         kosdaq = yf.Ticker("^KQ11").history(period="1d")
         k_price, kq_price = kospi['Close'].iloc[-1], kosdaq['Close'].iloc[-1]
         k_diff, kq_diff = k_price - kospi['Open'].iloc[-1], kq_price - kosdaq['Open'].iloc[-1]
-        base_info = f"코스피: {k_price:,.2f} ({k_diff:+.2f}, {(k_diff/kospi['Open'].iloc[-1])*100:+.2f}%), 코스닥: {kq_price:,.2f} ({kq_diff:+.2f}, {(kq_diff/kosdaq['Open'].iloc[-1])*100:+.2f}%)"
-        subject = f"[AI 주식 에이전트] {now.strftime('%Y-%m-%d')} 장 마감 종합 보고서"
-
-    print("🚀 [1단계] 시장 전체 실시간 급등주 스크리닝 진행 중...")
-    top_movers_section = get_pure_top_movers(market_type)
-
-    print("🚀 [2단계] Gemini 모델에 추천 종목 및 자유 분석 요청 중...")
-    raw_recommendations = ask_gemini_for_recommendations(market_type)
-    
-    print("🚀 [3단계] Gemini 추천 종목의 티커를 추출하여 yfinance 수치 주입 중...")
-    final_recommendations_section = inject_yfinance_to_recommendations(raw_recommendations, market_type)
-
-    final_prompt = f"""
-    너는 금융 분석가야. 아래 재료들을 깔끔하게 조립해서 최종 이메일 보고서 본문을 완성해줘.
-    
-    분석 기준 날짜: {date_str}
-    [시장 지수 데이터]
-    {base_info}
-    
-    [오늘의 실제 실시간 급등주 목록]
-    {top_movers_section}
-    
-    [AI 분석 추천 주식 및 수치 결합본]
-    {final_recommendations_section}
-    
-    [최종 지침]
-    - 제공된 원본 수치를 변조하지 말고 그대로 리포트에 녹여줘.
-    - 1번 항목에는 너의 실시간 웹 검색을 결합하여 '오늘 하루 글로벌 주요 시황 이슈 3가지'를 추가해줘.
-    - 2번 항목에는 시장의 전체적인 흐름 요약을 적어줘.
-    - 3번 항목에는 제공된 [오늘의 실제 실시간 급등주 목록]을 그대로 가독성 좋게 배치해줘.
-    - 4번 항목에는 제공된 [AI 분석 추천 주식 및 수치 결합본]을 활용해 종목명, 정확한 수치, 그리고 추천 근거(이유)를 전문성 있게 배치해줘.
-    """
-    
-    try:
-        return subject, ask_gemini_with_retry(final_prompt)
-    except Exception as e:
-        return subject, f"최종 보고서 빌드 실패: {e}"
-
-def send_email(subject, body):
-    global GMAIL_USER, GMAIL_APP_PASSWORD, RECEIVER_EMAIL
-    if not GMAIL_USER or not GMAIL_APP_PASSWORD or not RECEIVER_EMAIL: return
-    try:
-        # ⭕ 한글 특수 공백 필터링 안전 강화
-        GMAIL_USER = GMAIL_USER.replace('\xa0', ' ').strip()
-        GMAIL_APP_PASSWORD = GMAIL_APP_PASSWORD.replace('\xa0', ' ').strip()
-        RECEIVER_EMAIL = RECEIVER_EMAIL.replace('\xa0', ' ').strip()
-
-        targets = [email.strip() for email in RECEIVER_EMAIL.split(',') if email.strip()]
-        
-        msg = EmailMessage()
-        # ⭕ 한글 전송을 위한 깨짐 방지 인코딩(charset='utf-8') 필수 정의
-        msg.set_content(body, charset='utf-8') 
-        msg['Subject'] = subject
-        msg['From'] = GMAIL_USER
-        msg['To'] = ", ".join(targets)
-        
-        with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
-            server.login(GMAIL_USER, GMAIL_APP_PASSWORD)
-            server.send_message(msg)
-        print("🎉 이메일 발송 최종 성공!")
-    except Exception as e:
-        print(f"❌ 이메일 발송 실패: {e}")
-
-if __name__ == "__main__":
-    subject, report_text = generate_report()
-    send_email(subject, report_text)
+        base_info =
