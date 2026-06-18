@@ -20,82 +20,93 @@ client = genai.Client(api_key=GEMINI_API_KEY)
 
 def get_realtime_stock_info(ticker_symbol):
     """
-    특정 종목의 '전일 마감 종가' 대비 '오늘 실시간 현재가'의 정확한 당일 등락률을 계산합니다.
+    특정 종목의 전일 종가 대비 현재가, 변동 금액, 등락률을 계산합니다.
     """
     try:
         stock = yf.Ticker(ticker_symbol)
-        # 전일 종가와 오늘 현재가를 대조하기 위해 최근 2일 데이터를 가져옵니다.
         hist = stock.history(period="2d")
         
         if len(hist) < 2:
-            # 장 시작 직후라 데이터가 부족하면 당일 시가(Open) 대비 현재가(Close)로 방어 계산
             hist = stock.history(period="1d")
             prev_close = hist['Open'].iloc[-1]      
             current_price = hist['Close'].iloc[-1]  
         else:
-            prev_close = hist['Close'].iloc[-2]     # 1일 전 최종 마감 가격
-            current_price = hist['Close'].iloc[-1]  # 현재 움직이는 실시간 가격
+            prev_close = hist['Close'].iloc[-2]     # 전일 마감 가격
+            current_price = hist['Close'].iloc[-1]  # 오늘 실시간 현재가
             
-        chg_percent = ((current_price - prev_close) / prev_close) * 100
-        return {"price": current_price, "chg": chg_percent}
+        chg_amount = current_price - prev_close     # 변동 금액 (현재가 - 전일종가)
+        chg_percent = (chg_amount / prev_close) * 100 # 등락률
+        
+        return {
+            "price": current_price, 
+            "amount": chg_amount, 
+            "percent": chg_percent
+        }
     except Exception as e:
         print(f"⚠️ {ticker_symbol} 실시간 데이터 수집 실패: {e}")
         return None
 
 def get_market_and_top_movers(market_type):
-    """지수 데이터와 함께 실시간 개별 종목의 정확한 당일 변동 수치를 주입용 데이터로 가공합니다."""
+    """지수와 개별 주식 모두 [현재가 (변동금액, 변동퍼센트)] 양식으로 통일하여 가공합니다."""
     try:
         if market_type == "morning":
-            # 1. 미국 주요 시장 지수 데이터 추출
+            # 1. 미국 주요 시장 지수 데이터 (시가 대비 현재가 변동분 계산)
             nasdaq = yf.Ticker("^IXIC").history(period="1d")
             sp500 = yf.Ticker("^GSPC").history(period="1d")
+            
             n_price, s_price = nasdaq['Close'].iloc[-1], sp500['Close'].iloc[-1]
-            n_chg = ((n_price - nasdaq['Open'].iloc[-1]) / nasdaq['Open'].iloc[-1]) * 100
-            s_chg = ((s_price - sp500['Open'].iloc[-1]) / sp500['Open'].iloc[-1]) * 100
+            n_diff = n_price - nasdaq['Open'].iloc[-1]
+            s_diff = s_price - sp500['Open'].iloc[-1]
+            n_chg = (n_diff / nasdaq['Open'].iloc[-1]) * 100
+            s_chg = (s_diff / sp500['Open'].iloc[-1]) * 100
             
-            base_info = f"나스닥: {n_price:,.2f} ({n_chg:+.2f}%), S&P 500: {s_price:,.2f} ({s_chg:+.2f}%)"
+            base_info = f"나스닥: {n_price:,.2f} ({n_diff:+.2f}, {n_chg:+.2f}%), S&P 500: {s_price:,.2f} ({s_diff:+.2f}, {s_chg:+.2f}%)"
             
-            # 2. 미국 실시간 관심 종목 데이터 수집 (당일 팩트 전달용)
+            # 2. 미국 개별 주식 실시간 데이터 수집
             watchlist = ["NVDA", "AAPL", "TSLA", "MSFT", "AMZN", "GOOGL"]
             movers_list = []
             for ticker in watchlist:
                 info = get_realtime_stock_info(ticker)
                 if info:
-                    movers_list.append({"ticker": ticker, "price": info["price"], "chg": info["chg"]})
+                    movers_list.append({"ticker": ticker, "price": info["price"], "amount": info["amount"], "percent": info["percent"]})
             
-            # 오늘 가장 많이 오른(혹은 덜 떨어진) 순으로 정렬
-            movers_list.sort(key=lambda x: x["chg"], reverse=True)
+            # 당일 변동 퍼센트 기준으로 정렬
+            movers_list.sort(key=lambda x: x["percent"], reverse=True)
             
             fact_movers = " [미국 시장 실시간 당일 종목 팩트 데이터]\n"
             for m in movers_list:
-                fact_movers += f"- {m['ticker']}: 실시간 현재가 {m['price']:,.2f}달러, 전일대비 등락률 {m['chg']:+.2f}%\n"
+                # 지수처럼 현재가 (변동금액, 퍼센트) 형태로 가공하여 AI에게 전달
+                fact_movers += f"- {m['ticker']}: 현재가 {m['price']:,.2f}달러 (전일대비 변동: {m['amount']:+.2f}달러, {m['percent']:+.2f}%)\n"
                 
             return base_info, fact_movers
 
         else:
-            # 1. 한국 주요 시장 지수 데이터 추출
+            # 1. 한국 주요 시장 지수 데이터 (시가 대비 현재가 변동분 계산)
             kospi = yf.Ticker("^KS11").history(period="1d")
             kosdaq = yf.Ticker("^KQ11").history(period="1d")
+            
             k_price, kq_price = kospi['Close'].iloc[-1], kosdaq['Close'].iloc[-1]
-            k_chg = ((k_price - kospi['Open'].iloc[-1]) / kospi['Open'].iloc[-1]) * 100
-            kq_chg = ((kq_price - kosdaq['Open'].iloc[-1]) / kosdaq['Open'].iloc[-1]) * 100
+            k_diff = k_price - kospi['Open'].iloc[-1]
+            kq_diff = kq_price - kosdaq['Open'].iloc[-1]
+            k_chg = (k_diff / kospi['Open'].iloc[-1]) * 100
+            kq_chg = (kq_diff / kosdaq['Open'].iloc[-1]) * 100
             
-            base_info = f"코스피: {k_price:,.2f} ({k_chg:+.2f}%), 코스닥: {kq_price:,.2f} ({kq_chg:+.2f}%)"
+            base_info = f"코스피: {k_price:,.2f} ({k_diff:+.2f}, {k_chg:+.2f}%), 코스닥: {kq_price:,.2f} ({kq_diff:+.2f}, {kq_chg:+.2f}%)"
             
-            # 2. 한국 실시간 주요 종목 데이터 수집
+            # 2. 한국 개별 주식 실시간 데이터 수집
             watchlist = ["005930.KS", "000660.KS", "005380.KS", "247540.KQ", "086520.KQ"]
             names = {"005930.KS": "삼성전자", "000660.KS": "SK하이닉스", "005380.KS": "현대차", "247540.KQ": "에코프로비엠", "086520.KQ": "에코프로"}
             movers_list = []
             for ticker in watchlist:
                 info = get_realtime_stock_info(ticker)
                 if info:
-                    movers_list.append({"name": names[ticker], "price": info["price"], "chg": info["chg"]})
+                    movers_list.append({"name": names[ticker], "price": info["price"], "amount": info["amount"], "percent": info["percent"]})
             
-            movers_list.sort(key=lambda x: x["chg"], reverse=True)
+            movers_list.sort(key=lambda x: x["percent"], reverse=True)
             
             fact_movers = " [한국 시장 실시간 당일 종목 팩트 데이터]\n"
             for m in movers_list:
-                fact_movers += f"- {m['name']}: 실시간 현재가 {m['price']:,.0f}원, 전일대비 등락률 {m['chg']:+.2f}%\n"
+                fact_movers += f"- {m['name']}: 현재가 {m['price']:,.0f}원 (전일대비 변동: {m['amount']:+,0.0f}원, {m['percent']:+.2f}%)\n"
                 
             return base_info, fact_movers
             
@@ -114,22 +125,22 @@ def generate_report():
         subject = f"[AI 주식 에이전트] {now.strftime('%Y-%m-%d')} 아침 미국 증시 및 글로벌 이슈 보고서"
         
         prompt = f"""
-        너는 최고의 금융 분석 송방원 에이전트야. 제공된 지수 지표({market_info})와 아래의 정확한 [개별 종목 실시간 당일 데이터]를 바탕으로, 너의 최신 웹 검색 지식을 결합해서 아침 리포트를 작성해줘.
+        너는 최고의 금융 분석 송방원 에이전트야. 제공된 시장 정보({market_info})와 아래의 정확한 [개별 종목 데이터]를 바탕으로 보고서를 작성해줘.
         
-        [🚨 중요: 당일 수치 데이터 제공 - 절대 변조 금지]
+        [🚨 실제 당일 수치 데이터 - 변조 금지]
         {fact_data}
         
         [🚨 가장 중요한 초강력 절대 규칙]
-        - 절대로 위에 적힌 주식들의 실시간 가격이나 당일 등락률 퍼센트 수치를 다른 숫자로 지어내거나 변조하지 마. 100% 똑같이 받아적어야 해.
-        - 보고서에 등장하는 모든 수치 뒤에는 조건에 맞는 색상 원형 이모지를 강제 적용해줘.
-        - 당일 변동이 상승(+)이거나 동일하면 무조건 '0,000.00 달러 (🔴 +0.00%)' 형태로 표기해줘.
-        - 당일 변동이 하락(-)이면 무조건 '0,000.00 달러 (🔵 -0.00%)' 형태로 표기해줘.
-        - 3번(급등 종목)과 4번(추천/주목 종목)에 들어갈 주식은 위 데이터 목록에서 선정하며, 이름 옆에 정확한 가격과 등락률을 '종목명(티커) [000.00달러, 🔴 +5.40%]' 혹은 '종목명(티커) [000.00달러, 🔵 -1.20%]' 양식으로 100% 명시해줘.
+        - 절대로 위에 제공된 주식들의 실시간 가격, 변동 금액, 등락률 퍼센트 수치를 임의로 바꾸거나 지어내지 마. 100% 똑같이 받아적어야 해.
+        - 수치 뒤에는 조건에 맞는 색상 원형 이모지를 강제 적용해줘.
+        - 변동이 상승(+)이거나 동일하면 무조건 '현재가 달러 (🔴 +변동금액, +0.00%)' 형태로 표기해줘.
+        - 변동이 하락(-)이면 무조건 '현재가 달러 (🔵 -변동금액, -0.00%)' 형태로 표기해줘.
+        - 3번과 4번에 들어갈 모든 주식 종목은 위의 데이터 양식 그대로 '종목명(티커) [000.00달러, 🔴 +0.00달러 (+5.40%)]' 혹은 '종목명(티커) [000.00달러, 🔵 -0.00달러 (-1.20%)]' 형태로 명시해줘야 해. 예외는 없어!
 
         [작성 내용 - 반드시 4개 항목 모두 작성]
         분석 기준 날짜: {date_str}
         1. 밤 사이에 있었던 글로벌 주요 이슈 3가지 (핵심 내용 정리)
-        2. 새벽 마감된 미국 시장의 전체적인 흐름과 변동 요인 분석 (지수 언급 시 🔴/🔵 필수 적용)
+        2. 새벽 마감된 미국 시장의 전체적인 흐름과 변동 요인 분석 (지수 및 가격 언급 시 🔴/🔵 필수 적용)
         3. 제공된 데이터 중 당일 등락률 상위 종목을 기반으로 급등 종목을 매칭하여 구체적인 상승 이유 작성.
         4. 제공된 데이터 중 향후 흐름이 중요하게 기대되는 종목을 선정하여 합리적인 추천 이유 제시.
         """
@@ -139,22 +150,22 @@ def generate_report():
         subject = f"[AI 주식 에이전트] {now.strftime('%Y-%m-%d')} 장 마감 한국 증시 종합 보고서"
         
         prompt = f"""
-        너는 최고의 금융 분석 에이전트야. 제공된 지수 지표({market_info})와 아래의 정확한 [개별 종목 실시간 당일 데이터]를 바탕으로, 너의 최신 웹 검색 지식을 결합해서 마감 리포트를 작성해줘.
+        너는 최고의 금융 분석 에이전트야. 제공된 시장 정보({market_info})와 아래의 정확한 [개별 종목 데이터]를 바탕으로 보고서를 작성해줘.
         
-        [🚨 중요: 당일 수치 데이터 제공 - 절대 변조 금지]
+        [🚨 실제 당일 수치 데이터 - 변조 금지]
         {fact_data}
         
         [🚨 가장 중요한 초강력 절대 규칙]
-        - 절대로 위에 적힌 주식들의 실시간 가격이나 당일 등락률 퍼센트 수치를 다른 숫자로 지어내거나 변조하지 마. 100% 똑같이 받아적어야 해.
-        - 보고서에 등장하는 모든 수치 뒤에는 조건에 맞는 색상 원형 이모지를 강제 적용해줘.
-        - 당일 변동이 상승(+)이거나 동일하면 무조건 '0,000원 (🔴 +0.00%)' 형태로 표기해줘.
-        - 당일 변동이 하락(-)이면 무조건 '0,000원 (🔵 -0.00%)' 형태로 표기해줘.
-        - 3번(급등 종목)과 4번(추천/주목 종목)에 들어갈 주식은 위 데이터 목록에서 선정하며, 이름 바로 옆에 가격과 등락률을 '종목명 [00,000원, 🔴 +5.40%]' 혹은 '종목명 [00,000원, 🔵 -1.20%]' 양식으로 100% 명시해줘.
+        - 절대로 위에 제공된 주식들의 실시간 가격, 변동 금액, 등락률 퍼센트 수치를 임의로 바꾸거나 지어내지 마. 100% 똑같이 받아적어야 해.
+        - 수치 뒤에는 조건에 맞는 색상 원형 이모지를 강제 적용해줘.
+        - 변동이 상승(+)이거나 동일하면 무조건 '현재가원 (🔴 +변동금액, +0.00%)' 형태로 표기해줘.
+        - 변동이 하락(-)이면 무조건 '현재가원 (🔵 -변동금액, -0.00%)' 형태로 표기해줘.
+        - 3번과 4번에 들어갈 모든 주식 종목은 위의 데이터 양식 그대로 '종목명 [00,000원, 🔴 +000원 (+5.40%)]' 혹은 '종목명 [00,000원, 🔵 -000원 (-1.20%)]' 형태로 명시해줘야 해. 예외는 없어!
 
         [작성 내용 - 반드시 4개 항목 모두 작성]
         분석 기준 날짜: {date_str}
         1. 오늘 대한민국 주식시장 관련 주요 이슈 3가지
-        2. 오늘 한국 시장의 전체적인 흐름과 변동 요인 분석 (지수 언급 시 🔴/🔵 필수 적용)
+        2. 오늘 한국 시장의 전체적인 흐름과 변동 요인 분석 (지수 및 가격 언급 시 🔴/🔵 필수 적용)
         3. 제공된 데이터 중 당일 등락률 상위 종목을 기반으로 급등 종목을 매칭하여 명확한 상승 이유 작성.
         4. 제공된 데이터 중 내일 장에서 주목할 만한 종목을 선정하여 구체적인 추천 이유 제시.
         """
