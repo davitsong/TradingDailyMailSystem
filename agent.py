@@ -33,36 +33,36 @@ def get_realtime_stock_info(ticker_symbol):
             current_price = hist['Close'].iloc[-1]  
             
         chg_amount = current_price - prev_close     
-        chg_percent = (chg_amount / prev_close) * 100 
+        chg_percent = (chg_amount / prev_close) * 100 if prev_close != 0 else 0
         
         return {"price": current_price, "amount": chg_amount, "percent": chg_percent}
     except:
         return None
 
 def get_pure_top_movers(market_type):
-    """각 시장별로 20개의 핵심 주도주 백업 풀을 구축하여 안정성을 극대화한 스크리닝 엔진"""
+    """각 시장별로 30개의 핵심 주도주 백업 풀을 구축하여 안정성을 극대화한 스크리닝 엔진"""
     try:
         if market_type == "morning":
-            # 🇺🇸 미국 시장: 실시간 거래대금 최상위 및 AI/빅테크 핵심 20대 주도주 백업 풀
+            # 🇺🇸 미국 시장: AI/빅테크, 반도체, 시가총액 최상위 및 고유동성 핵심 30대 주도주 백업 풀
             us_backup = [
                 "TSLA", "NVDA", "AAPL", "AMD", "AMZN", "MSFT", "META", "GOOGL", 
                 "AVGO", "NFLX", "PLTR", "SMCI", "MU", "INTC", "QCOM", "ARM", 
-                "COIN", "MARA", "COSM", "NKE"
+                "COIN", "MARA", "COSM", "NKE", "BRK-B", "LLY", "UNH", "JPM",
+                "V", "XOM", "MA", "COST", "HD", "PG"
             ]
             results = []
             
             try:
                 screener = yf.Screener()
-                scr_data = screener.get_screeners('day_gainers', count=5)
+                scr_data = screener.get_screeners('day_gainers', count=10)
                 for quote in scr_data['day_gainers']['quotes']:
                     t = quote['symbol']
                     info = get_realtime_stock_info(t)
                     if info:
                         results.append({"name": t, "ticker": t, **info})
             except Exception as e:
-                print(f"⚠️ 미국 스크리너 연동 지연, 20대 백업 엔진 가동: {e}")
+                print(f"⚠️ 미국 스크리너 연동 지연, 30대 백업 엔진 가동: {e}")
                 
-            # 결과가 부족하면 20대 주도주에서 누락 데이터 실시간 동적 보충
             if len(results) < 3:
                 for t in us_backup:
                     if not any(r['ticker'] == t for r in results):
@@ -76,12 +76,12 @@ def get_pure_top_movers(market_type):
             return text
             
         else:
-            # 🇰🇷 대한민국 코스피 시장: 반도체, 자동차, 배터리, 바이오, 방산, 조선 등 핵심 섹터별 20대 주도주 백업 풀
+            # 🇰🇷 대한민국 코스피 시장: 주요 섹터별 시가총액 최상위 30대 대장주 백업 풀
             print("🔍 코스피 전체 시장 동적 탐색 시도 중...")
             results = []
             
             try:
-                search_results = yf.Search(".KS", max_results=30).quotes
+                search_results = yf.Search(".KS", max_results=50).quotes
                 for q in search_results:
                     t = q['symbol']
                     if t.endswith(".KS") and not t.startswith("^"):
@@ -89,11 +89,10 @@ def get_pure_top_movers(market_type):
                         if info and info['percent'] > 0:
                             results.append({"name": q.get('shortname', t), "ticker": t, **info})
             except Exception as e:
-                print(f"⚠️ 코스피 전체 동적 검색 지연, 20대 백업 엔진 가동: {e}")
+                print(f"⚠️ 코스피 전체 동적 검색 지연, 30대 백업 엔진 가동: {e}")
 
-            # 검색 결과가 3개 미만일 때 작동하는 20대 대표 종목 안전망
             if len(results) < 3:
-                print("🚨 코스피 초유동성 20대 대장주 엔진으로 전환하여 실시간 최고 급등주를 선별합니다.")
+                print("🚨 코스피 초유동성 30대 대장주 엔진으로 전환하여 실시간 최고 급등주를 선별합니다.")
                 core_kospi = {
                     "005930.KS": "삼성전자", "000660.KS": "SK하이닉스", "005380.KS": "현대차", 
                     "000270.KS": "기아", "005490.KS": "POSCO홀딩스", "035420.KS": "NAVER", 
@@ -101,7 +100,10 @@ def get_pure_top_movers(market_type):
                     "042700.KS": "한미반도체", "000100.KS": "유한양행", "011200.KS": "HMM",
                     "010140.KS": "삼성중공업", "028260.KS": "삼성물산", "034220.KS": "LG디스플레이",
                     "000810.KS": "삼성화재", "012330.KS": "현대모비스", "015760.KS": "한국전력",
-                    "017670.KS": "SK텔레콤", "323410.KS": "카카오뱅크"
+                    "017670.KS": "SK텔레콤", "323410.KS": "카카오뱅크",
+                    "055550.KS": "신한지주", "105560.KS": "KB금융", "003670.KS": "포스코푸처엠",
+                    "012450.KS": "한화에어로스페이스", "271560.KS": "오리온", "032830.KS": "삼성생명",
+                    "000720.KS": "현대건설", "009150.KS": "삼성전기", "033780.KS": "KT&G", "004020.KS": "현대제철"
                 }
                 for ticker, name in core_kospi.items():
                     if not any(r['ticker'] == ticker for r in results):
@@ -109,10 +111,9 @@ def get_pure_top_movers(market_type):
                         if info and info['percent'] > 0:
                             results.append({"name": name, "ticker": ticker, **info})
 
-            # 등락률 기준으로 칼같이 정렬
             results.sort(key=lambda x: x["percent"], reverse=True)
             
-            if not map:
+            if not results:
                 return "- 오늘 상승 마감한 코스피 주요 종목 데이터가 없습니다.\n"
                 
             text = ""
@@ -189,6 +190,7 @@ def generate_report():
     date_str = now.strftime('%Y년 %m월 %d일')
 
     market_type = "morning" if hour < 12 else "evening"
+    m_name = "미국 증시" if market_type == "morning" else "코스피 시장"
     
     if market_type == "morning":
         nasdaq = yf.Ticker("^IXIC").history(period="1d")
@@ -213,10 +215,10 @@ def generate_report():
         base_info = f"코스피: {k_price:,.2f} ({k_emoji} {k_diff:+.2f}, {(k_diff/kospi['Open'].iloc[-1])*100:+.2f}%), 코스닥: {kq_price:,.2f} ({kq_emoji} {kq_diff:+.2f}, {(kq_diff/kosdaq['Open'].iloc[-1])*100:+.2f}%)"
         subject = f"[AI 주식 에이전트] {now.strftime('%Y-%m-%d')} 장 마감 코스피 종합 보고서"
 
-    print("🚀 [1단계] 코스피 시장 전체 실시간 당일 최고 급등주 동적 검색 중...")
+    print(f"🚀 [1단계] {m_name} 전체 실시간 당일 최고 급등주 동적 검색 중...")
     top_movers_section = get_pure_top_movers(market_type)
 
-    print("🚀 [2단계] Gemini 모델에 유동적 코스피 추천 종목 및 분석 근거 요청 중...")
+    print(f"🚀 [2단계] Gemini 모델에 유동적 {m_name} 추천 종목 및 분석 근거 요청 중...")
     raw_recommendations = ask_gemini_for_recommendations(market_type)
     
     print("🚀 [3단계] Gemini 추천 종목의 티커를 추출하여 yfinance 수치 주입 중...")
@@ -229,7 +231,7 @@ def generate_report():
     [시장 지수 데이터]
     {base_info}
     
-    [오늘의 코스피 시장 실제 실시간 급등주 목록]
+    [오늘의 {m_name} 실제 실시간 급등주 목록]
     {top_movers_section}
     
     [AI 분석 추천 주식 및 수치 결합본]
@@ -238,9 +240,9 @@ def generate_report():
     [최종 지침]
     - 제공된 원본 수치와 지수의 빨강(🔴)/파랑(🔵) 양식을 절대 변조하지 말고 그대로 리포트에 녹여줘.
     - 1번 항목에는 너의 실시간 웹 검색을 결합하여 '오늘 하루 글로벌 주요 시황 이슈 3가지'를 추가해줘.
-    - 2번 항목에는 코스피 시장 중심의 전체적인 흐름 요약을 적어줘. 지수 데이터 수치는 제공된 것을 그대로 적어줘.
-    - 3번 항목에는 제공된 [오늘의 코스피 시장 실제 실시간 급등주 목록]을 원본 양식 그대로 가독성 좋게 배치하고 상세 분석을 적어줘.
-    - 4번 항목에는 제공된 [AI 분석 추천 주식 및 수치 결합본]을 활용해 코스피 추천 종목명, 정확한 수치, 그리고 추천 근거(이유)를 전문성 있게 배치해줘.
+    - 2번 항목에는 {m_name} 중심의 전체적인 흐름 요약을 적어줘. 지수 데이터 수치는 제공된 것을 그대로 적어줘.
+    - 3번 항목에는 제공된 [오늘의 {m_name} 실제 실시간 급등주 목록]을 원본 양식 그대로 가독성 좋게 배치하고 상세 분석을 적어줘.
+    - 4번 항목에는 제공된 [AI 분석 추천 주식 및 수치 결합본]을 활용해 추천 종목명, 정확한 수치, 그리고 추천 근거(이유)를 전문성 있게 배치해줘.
     """
     
     try:
@@ -267,7 +269,7 @@ def send_email(subject, body):
         with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
             server.login(GMAIL_USER, GMAIL_APP_PASSWORD)
             server.send_message(msg)
-        print("🎉 20대 대장주 안전 백업 시스템 적용 메일 발송 최종 성공!")
+        print("🎉 30대 대장주 안전 백업 시스템 적용 메일 발송 최종 성공!")
     except Exception as e:
         print(f"❌ 이메일 발송 실패: {e}")
 
